@@ -888,11 +888,18 @@ async def do_app_api(content: str, owner: Optional[str] = None) -> Dict:
         path = "/" + path
     # Check the path the server will route, not the raw string: httpx resolves
     # dot segments and the server percent-decodes, so "/api/x/../shell/exec" or
-    # "/api/%73hell/exec" would otherwise pass the prefix checks below.
+    # "/api/%73hell/exec" would otherwise pass the prefix checks below. The
+    # blocklists are app-relative, so strip any path prefix carried by the
+    # base (ODYSSEUS_INTERNAL_BASE behind a proxy, e.g. ".../odysseus").
     try:
+        base_path = httpx.URL(base).path.rstrip("/")
         routed_path = httpx.URL(f"{base}{path}").path
     except httpx.InvalidURL:
         return {"error": f"Invalid path: {path}", "exit_code": 1}
+    if base_path:
+        if not routed_path.startswith(base_path + "/"):
+            return {"error": f"Path must stay under the app base: {path}", "exit_code": 1}
+        routed_path = routed_path[len(base_path):]
     if any(seg in (".", "..") for seg in routed_path.split("/")):
         return {"error": f"Path must not contain '.' or '..' segments: {path}", "exit_code": 1}
     if any(routed_path.startswith(p) for p in _APP_API_BLOCKLIST_PREFIXES):
